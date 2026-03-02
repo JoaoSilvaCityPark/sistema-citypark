@@ -2,153 +2,149 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# --- CONFIGURAÇÃO E CSS (VISUAL MOBILE/TABLET) ---
-st.set_page_config(page_title="CityPark OS - Operação", page_icon="🅿️", layout="wide")
+st.set_page_config(page_title="CityPark OS - Backoffice", page_icon="🏢", layout="wide")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #f0f4f8; }
-    [data-testid="stSidebar"] { background-color: #0f172a; }
-    [data-testid="stSidebar"] * { color: #f8fafc !important; }
-    
-    /* Cartões Otimizados para Operação */
-    .caixa-card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); text-align: center; border-bottom: 4px solid #10b981; }
-    .caixa-card h3 { margin: 0; color: #64748b; font-size: 14px; text-transform: uppercase; }
-    .caixa-card h2 { margin: 5px 0 0 0; color: #0f172a; font-size: 24px; }
-    
-    .veiculo-card { background: white; padding: 15px; border-radius: 8px; border-left: 5px solid #3b82f6; box-shadow: 0 2px 4px rgba(0,0,0,0.05); margin-bottom: 10px; }
-    .veiculo-card h4 { margin: 0; color: #0f172a; font-size: 18px; }
-    .veiculo-card p { margin: 2px 0 0 0; color: #64748b; font-size: 14px; }
-    
-    /* Botões de Ação Rápida */
-    .btn-entrada > button { background-color: #10b981; color: white; width: 100%; height: 3em; font-weight: bold; font-size: 16px; border-radius: 8px; }
-    .btn-saida > button { background-color: #ef4444; color: white; width: 100%; height: 3em; font-weight: bold; font-size: 16px; border-radius: 8px; }
+    .stApp { background-color: #f4f6f9; }
+    .card { background-color: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; border-top: 4px solid #0f172a;}
     </style>
     """, unsafe_allow_html=True)
 
-# --- REGRAS CITYPARK ---
-UNIDADES = {
-    "Florianópolis - Centro": {"vagas": 50, "hora_carro": 15.0, "hora_moto": 10.0},
-    "Itajaí - Porto": {"vagas": 30, "hora_carro": 12.0, "hora_moto": 8.0}
-}
-CONVENIOS = ["Nenhum", "Shima Sushi (Isento)", "Mensalista", "Parceiro (10% OFF)"]
-PAGAMENTOS = ["Pix", "Dinheiro", "Crédito", "Débito", "Boleto"]
-
-# --- BANCO DE DADOS (SESSÃO) ---
-if 'patio' not in st.session_state: st.session_state.patio = []
-if 'historico' not in st.session_state: st.session_state.historico = []
-
-# --- MENU DO OPERADOR ---
-with st.sidebar:
-    st.image("https://www.google.com/s2/favicons?domain=cityparkestacionamentos.com&sz=256", width=80)
-    st.title("CityPark Ponto de Venda")
-    unidade = st.selectbox("📍 Unidade", list(UNIDADES.keys()))
-    operador = st.selectbox("👤 Operador", ["Alairton João", "Daniel Ramos Cardoso", "Operador Caixa 1"])
-    
-    vagas_ocupadas = len([v for v in st.session_state.patio if v['unidade'] == unidade])
-    st.progress(vagas_ocupadas / UNIDADES[unidade]["vagas"])
-    st.write(f"**Disponibilidade:** {UNIDADES[unidade]['vagas'] - vagas_ocupadas} / {UNIDADES[unidade]['vagas']}")
-
-# --- TELA PRINCIPAL (TABS DO OPERADOR) ---
-tab_fluxo, tab_detalhes, tab_caixa = st.tabs(["🚗 ENTRADA / SAÍDA", "📋 VEÍCULOS NO PÁTIO", "💰 MEU CAIXA"])
+# ==========================================
+# BANCO DE DADOS DINÂMICO (Memória)
+# Aqui é onde o sistema guarda as informações que você cadastrar
+# ==========================================
+if 'db_unidades' not in st.session_state:
+    st.session_state.db_unidades = [
+        {"id": 1, "nome": "Florianópolis - Matriz", "endereco": "Rua Cônego Bernardo, 101 - Trindade", "cnpj": "29.145.696/0001-26"},
+        {"id": 2, "nome": "Itajaí - Centro", "endereco": "Rua Exemplo, 200 - Centro", "cnpj": "00.000.000/0000-00"}
+    ]
+if 'db_tabelas' not in st.session_state:
+    st.session_state.db_tabelas = [
+        {"unidade": "Florianópolis - Matriz", "nome_tabela": "ROTATIVO", "valor": 15.00},
+        {"unidade": "Florianópolis - Matriz", "nome_tabela": "LA BOHEME", "valor": 4.00},
+        {"unidade": "Itajaí - Centro", "nome_tabela": "ROTATIVO", "valor": 12.00}
+    ]
+if 'db_usuarios' not in st.session_state:
+    st.session_state.db_usuarios = ["Alairton João", "Daniel Ramos Cardoso"]
 
 # ==========================================
-# 1. FLUXO PRINCIPAL (Foco em velocidade)
+# NAVEGAÇÃO PRINCIPAL (Gerente vs Operador)
 # ==========================================
-with tab_fluxo:
-    st.markdown("### Movimentação Rápida")
-    placa = st.text_input("Digite a Placa", placeholder="Ex: ABC-1234").upper()
-    
-    veiculo = next((v for v in st.session_state.patio if v["placa"] == placa), None)
-    
-    if veiculo:
-        # TELA DE SAÍDA / COBRANÇA
-        st.error(f"⚠️ SAÍDA: Veículo no pátio desde às {veiculo['entrada'].strftime('%H:%M')}")
-        st.write(f"**Veículo:** {veiculo.get('modelo', 'N/I')} - {veiculo.get('cor', 'N/I')} ({veiculo['tipo']})")
-        
-        c1, c2 = st.columns(2)
-        convenio = c1.selectbox("Tabela / Convênio", CONVENIOS)
-        pagamento = c2.selectbox("Forma de Pagamento", PAGAMENTOS)
-        
-        # Simulação de Cálculo (Sua lógica de tolerância entra aqui)
-        valor = UNIDADES[unidade]["hora_carro"] if veiculo['tipo'] == "Carro" else UNIDADES[unidade]["hora_moto"]
-        if "Isento" in convenio or "Mensalista" in convenio: valor = 0.0
-        elif "10% OFF" in convenio: valor *= 0.9
-        
-        st.markdown(f"<h1 style='text-align: center; color: #0f172a;'>Total: R$ {valor:.2f}</h1>", unsafe_allow_html=True)
-        
-        st.markdown('<div class="btn-saida">', unsafe_allow_html=True)
-        if st.button("🔴 CONFIRMAR SAÍDA E RECIBO"):
-            st.session_state.historico.append({
-                "placa": placa, "entrada": veiculo['entrada'], "saida": datetime.now(),
-                "valor": valor, "pagamento": pagamento, "unidade": unidade, "operador": operador
-            })
-            st.session_state.patio = [v for v in st.session_state.patio if v["placa"] != placa]
-            st.success("Saída registrada! Pátio atualizado.")
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+st.sidebar.image("https://www.google.com/s2/favicons?domain=cityparkestacionamentos.com&sz=256", width=100)
+modo_acesso = st.sidebar.radio("🔑 Tipo de Acesso", ["Painel do Gestor (Admin)", "Tela do Operador (PDV)"])
+st.sidebar.divider()
 
-    else:
-        # TELA DE ENTRADA (Com campos do Jump Park)
-        c_tipo, c_mod, c_cor = st.columns([1, 2, 1])
-        tipo = c_tipo.radio("Tipo", ["Carro", "Moto"], horizontal=True)
-        modelo = c_mod.text_input("Marca/Modelo (Opcional)", placeholder="Ex: HB20")
-        cor = c_cor.text_input("Cor (Opcional)", placeholder="Ex: Branco")
+if modo_acesso == "Painel do Gestor (Admin)":
+    st.title("⚙️ Painel Gerencial CityPark")
+    
+    tab_unidades, tab_tabelas, tab_equipe = st.tabs(["🏢 Gestão de Pátios", "💰 Tabelas e Convênios", "👥 Controle de Equipe"])
+    
+    # --- 1. GESTÃO DE PÁTIOS E ENDEREÇOS ---
+    with tab_unidades:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Cadastrar Novo Pátio")
+        c1, c2, c3 = st.columns([2, 3, 1])
+        nova_unid_nome = c1.text_input("Nome da Unidade (Ex: Palhoça - Shopping)")
+        nova_unid_end = c2.text_input("Endereço Completo para o Recibo")
+        nova_unid_cnpj = c3.text_input("CNPJ Local")
         
-        st.write("")
-        st.markdown('<div class="btn-entrada">', unsafe_allow_html=True)
-        if st.button("🟢 REGISTRAR ENTRADA"):
-            if placa:
-                st.session_state.patio.append({
-                    "placa": placa, "tipo": tipo, "modelo": modelo, "cor": cor, 
-                    "entrada": datetime.now(), "unidade": unidade
+        if st.button("➕ Adicionar Unidade", type="primary"):
+            if nova_unid_nome and nova_unid_end:
+                st.session_state.db_unidades.append({
+                    "id": len(st.session_state.db_unidades) + 1,
+                    "nome": nova_unid_nome, "endereco": nova_unid_end, "cnpj": nova_unid_cnpj
                 })
-                st.success("Entrada Registrada!")
+                st.success(f"Unidade '{nova_unid_nome}' cadastrada com sucesso!")
                 st.rerun()
-            else:
-                st.warning("Por favor, digite a placa para registrar.")
+        
+        st.write("---")
+        st.subheader("Unidades Ativas")
+        st.dataframe(pd.DataFrame(st.session_state.db_unidades), use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- 2. GESTÃO DE TABELAS DE PREÇO ---
+    with tab_tabelas:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Cadastrar Nova Regra/Convênio")
+        nomes_unidades = [u["nome"] for u in st.session_state.db_unidades]
+        
+        c_unid, c_tab, c_val = st.columns(3)
+        unid_alvo = c_unid.selectbox("Vincular a qual unidade?", nomes_unidades)
+        nome_tab = c_tab.text_input("Nome da Tabela (Ex: Shima Sushi)")
+        valor_tab = c_val.number_input("Valor Padrão (R$)", min_value=0.0, format="%.2f")
+        
+        if st.button("➕ Adicionar Tabela", type="primary"):
+            if nome_tab:
+                st.session_state.db_tabelas.append({"unidade": unid_alvo, "nome_tabela": nome_tab.upper(), "valor": valor_tab})
+                st.success("Tabela cadastrada!")
+                st.rerun()
+                
+        st.write("---")
+        st.subheader("Tabelas Ativas por Unidade")
+        st.dataframe(pd.DataFrame(st.session_state.db_tabelas), use_container_width=True, hide_index=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # --- 3. GESTÃO DE EQUIPE ---
+    with tab_equipe:
+        st.markdown('<div class="card">', unsafe_allow_html=True)
+        st.subheader("Cadastrar Colaborador")
+        novo_operador = st.text_input("Nome do Funcionário")
+        if st.button("➕ Adicionar Operador", type="primary"):
+            if novo_operador and novo_operador not in st.session_state.db_usuarios:
+                st.session_state.db_usuarios.append(novo_operador)
+                st.success("Operador adicionado!")
+                st.rerun()
+                
+        st.write("---")
+        st.write("**Lista de Colaboradores Autorizados:**")
+        for usr in st.session_state.db_usuarios:
+            st.write(f"- 👤 {usr}")
         st.markdown('</div>', unsafe_allow_html=True)
 
 # ==========================================
-# 2. VEÍCULOS NO PÁTIO (Estilo Cartão do Jump)
+# TELA DO OPERADOR (PDV Dinâmico)
 # ==========================================
-with tab_detalhes:
-    st.markdown("### Detalhes do Pátio")
-    patio_unidade = [v for v in st.session_state.patio if v['unidade'] == unidade]
+elif modo_acesso == "Tela do Operador (PDV)":
+    # O PDV agora puxa as informações cadastradas lá no painel do gestor
+    nomes_unidades = [u["nome"] for u in st.session_state.db_unidades]
     
-    if patio_unidade:
-        for v in reversed(patio_unidade): # Mostra os mais recentes primeiro
-            modelo_exib = f" - {v.get('modelo').upper()}" if v.get('modelo') else ""
-            cor_exib = f" / {v.get('cor').upper()}" if v.get('cor') else ""
-            hora = v['entrada'].strftime('%H:%M:%S')
-            
-            st.markdown(f"""
-            <div class="veiculo-card">
-                <h4>{v['placa']}{modelo_exib}{cor_exib}</h4>
-                <p>Entrada: Hoje às {hora} | Tabela: ROTATIVO</p>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.info("Pátio vazio neste momento.")
-
-# ==========================================
-# 3. RESUMO DO CAIXA DO OPERADOR
-# ==========================================
-with tab_caixa:
-    hist_op = [h for h in st.session_state.historico if h['unidade'] == unidade and h['operador'] == operador]
+    st.sidebar.subheader("Configuração do Turno")
+    unidade_pdv = st.sidebar.selectbox("📍 Unidade de Operação", nomes_unidades)
+    operador_pdv = st.sidebar.selectbox("👤 Operador Logado", st.session_state.db_usuarios)
     
-    dinheiro = sum(h['valor'] for h in hist_op if h['pagamento'] == 'Dinheiro')
-    pix = sum(h['valor'] for h in hist_op if h['pagamento'] == 'Pix')
-    credito = sum(h['valor'] for h in hist_op if h['pagamento'] == 'Crédito')
-    debito = sum(h['valor'] for h in hist_op if h['pagamento'] == 'Débito')
-    total = dinheiro + pix + credito + debito
+    # Filtra as tabelas de preço apenas para a unidade que o operador selecionou
+    tabelas_desta_unidade = [t["nome_tabela"] for t in st.session_state.db_tabelas if t["unidade"] == unidade_pdv]
     
-    st.markdown(f"### Fechamento Parcial - {operador}")
-    st.markdown(f'<div class="caixa-card"><h3>Total em Caixa</h3><h2>R$ {total:.2f}</h2></div>', unsafe_allow_html=True)
+    st.title(f"🚗 PDV - {unidade_pdv}")
+    st.write(f"Bem-vindo(a), **{operador_pdv}**! Selecione a placa e a tabela abaixo.")
     
-    st.write("---")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("💵 Dinheiro", f"R$ {dinheiro:.2f}")
-    c2.metric("💳 Crédito", f"R$ {credito:.2f}")
-    c3.metric("💳 Débito", f"R$ {debito:.2f}")
-    c4.metric("📱 Pix", f"R$ {pix:.2f}")
+    st.markdown('<div class="card">', unsafe_allow_html=True)
+    placa = st.text_input("Placa do Veículo", placeholder="ABC-1234").upper()
+    
+    c1, c2 = st.columns(2)
+    tabela_selecionada = c1.selectbox("Tabela de Cobrança / Convênio", tabelas_desta_unidade if tabelas_desta_unidade else ["Nenhuma tabela cadastrada"])
+    forma_pagamento = c2.selectbox("Forma de Pagamento", ["Pix", "Cartão de Crédito", "Cartão de Débito", "Dinheiro"])
+    
+    if st.button("GERAR RECIBO DE SAÍDA", use_container_width=True):
+        # Busca os dados exatos da unidade selecionada para imprimir no recibo
+        dados_unidade = next((u for u in st.session_state.db_unidades if u["nome"] == unidade_pdv), None)
+        valor_cobrado = next((t["valor"] for t in st.session_state.db_tabelas if t["nome_tabela"] == tabela_selecionada and t["unidade"] == unidade_pdv), 0.0)
+        
+        st.success("Cobrança registrada! Imprimindo recibo...")
+        st.code(f"""
+        -----------------------------------
+        CITYPARK ESTACIONAMENTOS LTDA
+        {dados_unidade['endereco']}
+        CNPJ: {dados_unidade['cnpj']}
+        -----------------------------------
+        PLACA: {placa}
+        TABELA: {tabela_selecionada}
+        PAGAMENTO: {forma_pagamento}
+        OPERADOR: {operador_pdv}
+        -----------------------------------
+        TOTAL: R$ {valor_cobrado:.2f}
+        -----------------------------------
+        """, language="text")
+    st.markdown('</div>', unsafe_allow_html=True)
